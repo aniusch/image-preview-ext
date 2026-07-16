@@ -1,0 +1,16 @@
+# The published extension is the bundled dist/extension.js only; everything used
+# to build it is excluded.
+.vscode/**
+test/**
+samples/**
+src/**
+scripts/**
+node_modules/**
+extension.js
+install.sh
+.gitignore
+.git/**
+.vscodeignore
+scratchpad/**
+**/*.map
+*.vsix

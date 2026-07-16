@@ -1,0 +1,57 @@
+{
+  "name": "inline-image-preview",
+  "displayName": "Inline Image Preview",
+  "description": "Preview base64 strings, data URIs, and image URLs inline on hover.",
+  "version": "0.0.1",
+  "publisher": "aniusch",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Visualization"
+  ],
+  "keywords": [
+    "base64",
+    "image",
+    "preview",
+    "data uri",
+    "hover"
+  ],
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aniusch/image-preview-ext.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aniusch/image-preview-ext/issues"
+  },
+  "homepage": "https://github.com/aniusch/image-preview-ext#readme",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "imagePreview.showSelection",
+        "title": "Image Preview: Preview Selection / String"
+      }
+    ]
+  },
+  "scripts": {
+    "test": "node test/detect.test.js",
+    "build": "esbuild extension.js --bundle --platform=node --target=node18 --external:vscode --minify --outfile=dist/extension.js",
+    "watch": "esbuild extension.js --bundle --platform=node --target=node18 --external:vscode --sourcemap --watch --outfile=dist/extension.js",
+    "vscode:prepublish": "npm run build",
+    "package": "npx --yes @vscode/vsce@latest package",
+    "publish:vsce": "npx --yes @vscode/vsce@latest publish",
+    "publish:ovsx": "npx --yes ovsx@latest publish inline-image-preview-0.0.1.vsix"
+  },
+  "dependencies": {
+    "jimp": "^0.22.12"
+  },
+  "devDependencies": {
+    "esbuild": "^0.23.1"
+  }
+}
