@@ -30,6 +30,12 @@ const BASE64_MAGIC = [
 const DATA_URI_RE = /^data:image\/[\w.+-]+;base64,/i;
 const URL_RE = /^https?:\/\/[^\s]+$/i;
 const IMG_EXT_RE = /\.(png|jpe?g|gif|webp|bmp|svg|ico|avif|tiff?)(\?[^\s]*)?$/i;
+// Known non-image resources — skip these so we never fetch a page/asset that
+// obviously isn't an image. Extension-less URLs (CDN/S3/signed) fall through and
+// are probed by Content-Type at fetch time.
+const NON_IMG_EXT_RE =
+  /\.(html?|php|aspx?|jsp|js|mjs|cjs|ts|tsx|jsx|vue|css|scss|less|json|xml|ya?ml|md|markdown|txt|csv|tsv|pdf|zip|t?gz|tar|rar|7z|mp[34]|m4a|mov|avi|mkv|webm|wav|ogg|flac|doc|docx|xls|xlsx|ppt|pptx|woff2?|ttf|otf|eot|wasm|exe|dmg|deb|rpm)(\?[^\s]*)?$/i;
+const URL_TRAILING_PUNCT_RE = /[.,;:!?]+$/;
 const BASE64_BODY_RE = /^[A-Za-z0-9+/]+={0,2}$/;
 
 // Expand from `offset` in `text` outward until hitting a delimiter, returning the
@@ -61,10 +67,14 @@ function classify(token) {
   }
 
   if (URL_RE.test(t)) {
-    // Only treat as an image URL if it looks like one; otherwise skip so we
-    // don't try to render arbitrary pages. Query strings are tolerated.
-    if (IMG_EXT_RE.test(t)) return { kind: 'url', url: t };
-    return null;
+    // Trim trailing punctuation that commonly abuts a URL in prose/JSON.
+    const url = t.replace(URL_TRAILING_PUNCT_RE, '');
+    // Definite image extension -> preview without probing.
+    if (IMG_EXT_RE.test(url)) return { kind: 'url', url, probe: false };
+    // Known non-image resource -> skip (never fetch pages/assets).
+    if (NON_IMG_EXT_RE.test(url)) return null;
+    // Extension-less URL (CDN/S3/signed) -> candidate; confirm via Content-Type.
+    return { kind: 'url', url, probe: true };
   }
 
   // Raw base64 (no data: prefix) — the shape used by the sample payloads.

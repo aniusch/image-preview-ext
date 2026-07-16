@@ -36,11 +36,10 @@ each release (`npm version patch`).
 
 ## Publish a release
 
-Bump the version first (updates `package.json` and the `publish:ovsx` filename if
-you keep it in sync):
+Bump the version first:
 
 ```bash
-npm version patch      # 0.0.1 -> 0.0.2
+npm version patch      # 0.0.1 -> 0.0.2  (use `minor` for new features)
 ```
 
 ### VS Marketplace
@@ -50,20 +49,19 @@ export VSCE_PAT=<your-marketplace-PAT>
 npm run publish:vsce
 ```
 
-(`vsce publish` runs the bundle build via `vscode:prepublish`, packages, and
-uploads. Alternatively `npx @vscode/vsce login aniusch` once, then `vsce publish`.)
+(`vsce publish` packages the current version and uploads it. Alternatively
+`npx @vscode/vsce login aniusch` once, then `vsce publish`.)
 
 ### Open VSX
 
 ```bash
-npm run package                                    # build the .vsix
 export OVSX_PAT=<your-open-vsx-token>
-npx --yes ovsx create-namespace aniusch            # first release only
-npm run publish:ovsx                               # publishes the .vsix
+npx --yes ovsx create-namespace aniusch    # first release only, ignore if it exists
+npm run publish:ovsx                        # packages + publishes the current version
 ```
 
-> If you bump the version, update the filename in the `publish:ovsx` script (or
-> run `npx ovsx publish <new-file>.vsix`).
+Both `publish:*` scripts pick up the version from `package.json` — no filenames
+to keep in sync.
 
 ---
 

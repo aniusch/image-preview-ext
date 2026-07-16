@@ -4,7 +4,12 @@ A tiny, zero-build VSCode / Cursor extension that previews images embedded in te
 
 - **Raw base64** blobs (no `data:` prefix) — detected by magic bytes (JPEG, PNG, GIF, WebP, BMP, ICO, SVG). This is the shape used by the sample payloads (`objectBase64` fields).
 - **Data URIs** — `data:image/png;base64,...`
-- **Image URLs** — `https://.../foo.png` (fetched and inlined so they render reliably).
+- **Image URLs** — `https://.../foo.png`, and also **extension-less URLs**
+  (CDN / S3 / signed links like `https://…amazonaws.com/private/<uuid>`), which
+  are confirmed by their `Content-Type` at fetch time. Results are cached per
+  session, fetches time out after 6s, and obvious non-images (`.html`, `.json`,
+  …) are never fetched. Turn this off with `imagePreview.previewUrls: false` if
+  you don't want hovers making network requests.
 
 ## Features
 
@@ -55,10 +60,10 @@ Reload the window after installing.
 ### Local development install
 
 `install.sh` symlinks this folder into your editor's extensions dir for live
-editing. The manifest loads the bundled `dist/extension.js`, so build it first
-(`npm run build`, or `npm run watch` to rebuild on save). Pressing <kbd>F5</kbd>
-launches a dev host with `samples/` loaded (also uses the bundle — keep `watch`
-running).
+editing. The extension runs its source (`extension.js`) directly — no build
+step — so just reload the window after editing. Pressing <kbd>F5</kbd> launches a
+dev host with `samples/` loaded. Run `npm install` once so the `jimp` dependency
+is present.
 
 ## Test
 

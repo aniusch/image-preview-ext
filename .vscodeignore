@@ -1,13 +1,12 @@
-# The published extension is the bundled dist/extension.js only; everything used
-# to build it is excluded.
+# The extension runs its source directly (no bundle step). Ship extension.js,
+# src/, and the jimp runtime dependency; exclude dev-only and heavy files.
 .vscode/**
 test/**
 samples/**
-src/**
 scripts/**
-node_modules/**
-extension.js
+dist/**
 install.sh
+PUBLISHING.md
 .gitignore
 .git/**
 .vscodeignore

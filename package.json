@@ -30,28 +30,32 @@
   "activationEvents": [
     "onStartupFinished"
   ],
-  "main": "./dist/extension.js",
+  "main": "./extension.js",
   "contributes": {
     "commands": [
       {
         "command": "imagePreview.showSelection",
         "title": "Image Preview: Preview Selection / String"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Inline Image Preview",
+      "properties": {
+        "imagePreview.previewUrls": {
+          "type": "boolean",
+          "default": true,
+          "description": "Preview http(s) image URLs on hover. This fetches the URL to check whether it is an image; disable to prevent any network requests from hovering."
+        }
+      }
+    }
   },
   "scripts": {
     "test": "node test/detect.test.js",
-    "build": "esbuild extension.js --bundle --platform=node --target=node18 --external:vscode --minify --outfile=dist/extension.js",
-    "watch": "esbuild extension.js --bundle --platform=node --target=node18 --external:vscode --sourcemap --watch --outfile=dist/extension.js",
-    "vscode:prepublish": "npm run build",
     "package": "npx --yes @vscode/vsce@latest package",
     "publish:vsce": "npx --yes @vscode/vsce@latest publish",
-    "publish:ovsx": "npx --yes ovsx@latest publish inline-image-preview-0.0.1.vsix"
+    "publish:ovsx": "npx --yes ovsx@latest publish"
   },
   "dependencies": {
     "jimp": "^0.22.12"
-  },
-  "devDependencies": {
-    "esbuild": "^0.23.1"
   }
 }

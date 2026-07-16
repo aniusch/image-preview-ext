@@ -3,3 +3,4 @@ node_modules/
 dist/
 # Real-face test payloads kept out of the public repo for privacy.
 samples/
+.env

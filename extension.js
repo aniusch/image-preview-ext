@@ -15,6 +15,8 @@ const {
 
 const MAX_BYTES = 16 * 1024 * 1024; // cap on any single image we materialize
 const THUMB_MAX = 300; // px, longest edge of the hover thumbnail
+const FETCH_TIMEOUT_MS = 6000; // abort slow remote image fetches
+const URL_CACHE_MAX = 100; // remembered URL fetch results per session
 
 function activate(context) {
   const selector = { scheme: '*', language: '*' };
@@ -50,16 +52,41 @@ async function resolveImage(info, token) {
     return { buffer: Buffer.from(body, 'base64'), mime: info.mime, source: 'data uri' };
   }
   if (info.kind === 'url') {
-    const fetched = await fetchImage(info.url);
+    if (!urlPreviewEnabled()) return null;
+    const fetched = await fetchImageCached(info.url);
     if (!fetched) return null;
     return { ...fetched, source: 'remote' };
   }
   return null;
 }
 
+function urlPreviewEnabled() {
+  return vscode.workspace
+    .getConfiguration('imagePreview')
+    .get('previewUrls', true);
+}
+
+// Per-session cache of URL -> { buffer, mime } (positive) or null (confirmed
+// non-image). Avoids re-fetching on every hover over the same URL. Transient
+// network failures are NOT cached so they can recover on the next hover.
+const urlCache = new Map();
+async function fetchImageCached(url) {
+  if (urlCache.has(url)) return urlCache.get(url);
+  const result = await fetchImage(url); // {buffer,mime} | null | undefined(=transient)
+  if (result !== undefined) {
+    if (urlCache.size >= URL_CACHE_MAX) urlCache.delete(urlCache.keys().next().value);
+    urlCache.set(url, result);
+  }
+  return result || null;
+}
+
+// Returns {buffer,mime} on success, null when the URL is confirmed to be a
+// non-image (or too big), and undefined on a transient error/timeout.
 async function fetchImage(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(url, { redirect: 'follow' });
+    const res = await fetch(url, { redirect: 'follow', signal: controller.signal });
     if (!res.ok) return null;
     const mime = (res.headers.get('content-type') || '').split(';')[0].trim();
     if (!mime.startsWith('image/')) return null;
@@ -69,7 +96,9 @@ async function fetchImage(url) {
     if (buffer.length > MAX_BYTES) return null;
     return { buffer, mime };
   } catch (_e) {
-    return null;
+    return undefined; // network error / timeout — don't cache, allow retry
+  } finally {
+    clearTimeout(timer);
   }
 }
 
