@@ -2,7 +2,7 @@
   "name": "inline-image-preview",
   "displayName": "Inline Image Preview",
   "description": "Preview base64 strings, data URIs, and image URLs inline on hover.",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "publisher": "aniusch",
   "license": "MIT",
   "engines": {
