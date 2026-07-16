@@ -1,5 +1,7 @@
 # The extension runs its source directly (no bundle step). Ship extension.js,
 # src/, and the jimp runtime dependency; exclude dev-only and heavy files.
+.env
+.env.*
 .vscode/**
 test/**
 samples/**
