@@ -126,5 +126,68 @@ exports.run = async function run() {
     await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
   });
 
+  // ---- 0.3 ----
+
+  await ok('temp files go in this window\'s own folder', async () => {
+    const { file } = linkArg(markdown, 'imagePreview.openFull');
+    assert.equal(path.basename(path.dirname(file)), `window-${process.pid}`);
+  });
+
+  await ok('Insert Image replaces a selected path with a data URI', async () => {
+    const png = path.join(os.tmpdir(), `image-preview-insert-${process.pid}.png`);
+    fs.writeFileSync(png, PNG);
+    const target = await vscode.workspace.openTextDocument({ language: 'javascript', content: `const logo = '${png}';\n` });
+    const targetEditor = await vscode.window.showTextDocument(target);
+    const start = target.getText().indexOf(png);
+    targetEditor.selection = new vscode.Selection(target.positionAt(start), target.positionAt(start + png.length));
+    await vscode.commands.executeCommand('imagePreview.insertImage');
+    assert.equal(target.getText(), `const logo = '${DATA_URI}';\n`);
+    await vscode.commands.executeCommand('imagePreview.copyFileAsDataUri', vscode.Uri.file(png));
+    assert.equal(await vscode.env.clipboard.readText(), DATA_URI);
+    fs.rmSync(png);
+    await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
+  });
+
+  await ok('paste/drop: a pasted screenshot becomes data URI and base64 edits', async () => {
+    assert.ok(vscode.DocumentDropOrPasteEditKind, 'paste API missing');
+    const { imagesFrom, editsFor } = require('../../src/insert');
+    const pasted = [['image/png', { asFile: () => ({ name: 'image.png', data: async () => PNG }) }]];
+    const images = await imagesFrom(pasted, { isCancellationRequested: false });
+    assert.equal(images.length, 1);
+    const kinds = {
+      dataUri: vscode.DocumentDropOrPasteEditKind.Empty.append('imagePreview', 'dataUri'),
+      base64: vscode.DocumentDropOrPasteEditKind.Empty.append('imagePreview', 'base64'),
+    };
+    const edits = editsFor(images, vscode.DocumentPasteEdit, kinds);
+    assert.deepEqual(edits.map((e) => e.insertText), [DATA_URI, B64]);
+    assert.deepEqual(edits[0].yieldTo.map((k) => k.value), ['text', 'uri', 'markdown']);
+  });
+
+  await ok('paste/drop: plain text is left alone', async () => {
+    const { imagesFrom } = require('../../src/insert');
+    const text = [['text/plain', { asFile: () => undefined, asString: async () => 'hi' }]];
+    assert.deepEqual(await imagesFrom(text, { isCancellationRequested: false }), []);
+  });
+
+  await ok('Show All Images opens a grid', async () => {
+    await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
+    await vscode.commands.executeCommand('imagePreview.showAllImages');
+    await sleep(1500);
+    const tabs = vscode.window.tabGroups.all.flatMap((g) => g.tabs).map((t) => t.label);
+    assert.ok(tabs.some((t) => t.startsWith('Images · ')), tabs.join(', '));
+    await vscode.commands.executeCommand('notifications.clearAll');
+    shot('gallery');
+    await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+  });
+
+  await ok('gutter thumbnails render when enabled', async () => {
+    const settings = vscode.workspace.getConfiguration('imagePreview');
+    await settings.update('gutterThumbnails', true, vscode.ConfigurationTarget.Global);
+    await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
+    await sleep(1200);
+    shot('gutter');
+    await settings.update('gutterThumbnails', false, vscode.ConfigurationTarget.Global);
+  });
+
   if (failed) throw new Error(`${failed} integration check(s) failed`);
 };

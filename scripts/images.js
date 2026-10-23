@@ -6,8 +6,17 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const Module = require('module');
 const { execFileSync } = require('child_process');
-const { humanSize, imageSize, fitWithin } = require('../src/detect');
+const { humanSize, imageSize, fitWithin, describeImage } = require('../src/detect');
+
+// src/gallery.js requires "vscode", which only exists inside the editor.
+const resolve = Module._resolveFilename;
+Module._resolveFilename = function (request, ...rest) {
+  return request === 'vscode' ? request : resolve.call(this, request, ...rest);
+};
+require.cache.vscode = { id: 'vscode', filename: 'vscode', loaded: true, exports: {} };
+const { galleryHtml } = require('../src/gallery');
 
 const ROOT = path.join(__dirname, '..');
 const CHROME = process.env.CHROME || 'google-chrome';
@@ -132,5 +141,44 @@ const hero = `<!doctype html><html><head><meta charset="utf-8"><style>
   </div>
 </body></html>`;
 shoot(hero, path.join(ROOT, 'images', 'hover.png'), 1100, 420, 2);
+
+// ---- Gallery: the extension's own grid HTML ---------------------------------
+
+const CHART = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200">
+  <rect width="320" height="200" rx="12" fill="#ffffff"/>
+  <g fill="#3b82f6"><rect x="40" y="110" width="36" height="60" rx="4"/><rect x="96" y="70" width="36" height="100" rx="4"/>
+  <rect x="152" y="90" width="36" height="80" rx="4"/><rect x="208" y="40" width="36" height="130" rx="4"/></g>
+  <rect x="30" y="170" width="260" height="2" fill="#cbd5e1"/>
+</svg>`;
+const iconPng = fs.readFileSync(path.join(ROOT, 'icon.png'));
+const chartSvg = Buffer.from(CHART);
+const gallery = [
+  { buffer: picture, mime: 'image/png', kind: 'base64', label: '"avatar":', line: 5 },
+  { buffer: iconPng, mime: 'image/png', kind: 'data uri', label: '"logo":', line: 12 },
+  { buffer: chartSvg, mime: 'image/svg+xml', kind: 'data uri', label: '.report-chart { background: url', line: 31 },
+].map((image, index) => ({
+  index,
+  line: image.line,
+  label: image.label,
+  src: `data:${image.mime};base64,${image.buffer.toString('base64')}`,
+  meta: `${describeImage(image.buffer, image.mime)} · ${image.kind}`,
+}));
+const GALLERY_THEME = `<style>:root {
+  --vscode-editor-background: #1f1f1f;
+  --vscode-foreground: #cccccc;
+  --vscode-font-family: system-ui, sans-serif;
+  --vscode-editor-font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --vscode-editorWidget-background: #202020;
+  --vscode-editorWidget-border: #454545;
+  --vscode-focusBorder: #0078d4;
+}</style>`;
+const galleryPage = galleryHtml({
+  title: 'user.response.json',
+  cards: gallery,
+  truncated: false,
+  cspSource: "'self'",
+  nonce: 'screenshot',
+}).replace('<head>', `<head>${GALLERY_THEME}`);
+shoot(galleryPage, path.join(ROOT, 'images', 'gallery.png'), 680, 262, 2);
 
 fs.rmSync(TMP, { recursive: true, force: true });

@@ -4,7 +4,18 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { tokenAt, classify, base64Mime, base64Bytes, imageSize, fitWithin } = require('../src/detect');
+const {
+  tokenAt,
+  classify,
+  findImages,
+  decodeInline,
+  sniffMime,
+  describeImage,
+  base64Mime,
+  base64Bytes,
+  imageSize,
+  fitWithin,
+} = require('../src/detect');
 
 let passed = 0;
 function ok(name, fn) {
@@ -136,5 +147,51 @@ if (fs.existsSync(samplesDir)) {
     }
   }
 }
+
+// --- scanning a whole document ---
+const PNG_B64 = FIXTURES.png;
+ok('findImages finds raw base64, data URIs, and image URLs in order', () => {
+  const text = [
+    '{',
+    `  "avatar": "${PNG_B64}",`,
+    `  "css": "background: url(data:image/gif;base64,${FIXTURES.gif})",`,
+    '  "photo": "https://cdn.example.com/a/photo.jpg",',
+    '  "page": "https://example.com/about",',
+    '  "word": "notAnImageButQuiteALongIdentifierName1234"',
+    '}',
+  ].join('\n');
+  const inline = findImages(text);
+  assert.deepEqual(inline.map((i) => i.info.kind), ['base64', 'dataUri']);
+  assert.equal(text.slice(inline[0].start, inline[0].end), PNG_B64);
+  assert.ok(inline[1].value.startsWith('data:image/gif;base64,'));
+  const withUrls = findImages(text, { urls: true });
+  assert.deepEqual(withUrls.map((i) => i.info.kind), ['base64', 'dataUri', 'url']);
+  assert.equal(withUrls[2].info.url, 'https://cdn.example.com/a/photo.jpg');
+});
+ok('findImages respects max', () => {
+  const text = Array(10).fill(`"${PNG_B64}"`).join(',');
+  assert.equal(findImages(text, { max: 3 }).length, 3);
+});
+ok('findImages on text without images', () => {
+  assert.deepEqual(findImages('const x = 1;\n'.repeat(1000)), []);
+});
+ok('decodeInline round-trips base64 and data URIs', () => {
+  const bytes = Buffer.from(PNG_B64, 'base64');
+  assert.ok(decodeInline(classify(PNG_B64), PNG_B64).equals(bytes));
+  const uri = `data:image/png;base64,${PNG_B64}`;
+  assert.ok(decodeInline(classify(uri), uri).equals(bytes));
+  assert.equal(decodeInline(classify('https://x.dev/a.png'), 'https://x.dev/a.png'), null);
+});
+ok('sniffMime by bytes, then by extension', () => {
+  assert.equal(sniffMime(Buffer.from(FIXTURES.jpeg, 'base64'), 'wrong.png'), 'image/jpeg');
+  assert.equal(sniffMime(Buffer.from('  <svg viewBox="0 0 1 1"></svg>'), 'x'), 'image/svg+xml');
+  assert.equal(sniffMime(Buffer.from('????'), 'photo.avif'), 'image/avif');
+  assert.equal(sniffMime(Buffer.from('hello'), 'notes.txt'), null);
+});
+ok('describeImage', () => {
+  const png = Buffer.from(PNG_B64, 'base64');
+  assert.equal(describeImage(png, 'image/png'), `image/png · 7×5 · ${png.length} B`);
+  assert.equal(describeImage(Buffer.from('xx'), 'image/avif'), 'image/avif · 2 B');
+});
 
 console.log(`\n${passed} checks passed`);

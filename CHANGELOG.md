@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0
+
+- **Show All Images in File**: a grid of every image in the file, with its
+  line and key; click one to jump to it.
+- **Gutter thumbnails** next to lines with inline images
+  (`imagePreview.gutterThumbnails`, off by default).
+- **Images to base64**: paste a screenshot, or drop an image file and pick
+  *Insert image as data URI / as base64*; *Insert Image as Base64…* command;
+  *Copy as Data URI* in the Explorer. New settings `imagePreview.insertFormat`
+  and `imagePreview.pasteAndDrop`.
+- Temp files live in a folder per window, deleted when the window closes.
+  Folders left by crashed windows are cleaned up by the next window.
+
 ## 0.2.0
 
 - The hover shows the image's pixel size, for example `600×400`.

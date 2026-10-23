@@ -2,7 +2,7 @@
   "name": "inline-image-preview",
   "displayName": "Inline Image Preview — Base64, Data URI & URL",
   "description": "Hover a base64 string, data: URI, or image URL in any file to see the picture inline. Works in JSON, API responses, logs, fixtures, and code.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "aniusch",
   "license": "MIT",
   "engines": {
@@ -55,7 +55,29 @@
     "commands": [
       {
         "command": "imagePreview.showSelection",
-        "title": "Image Preview: Preview Selection / String"
+        "title": "Preview Selection / String",
+        "category": "Image Preview"
+      },
+      {
+        "command": "imagePreview.showAllImages",
+        "title": "Show All Images in File",
+        "category": "Image Preview",
+        "icon": "$(file-media)"
+      },
+      {
+        "command": "imagePreview.insertImage",
+        "title": "Insert Image as Base64…",
+        "category": "Image Preview"
+      },
+      {
+        "command": "imagePreview.toggleGutterThumbnails",
+        "title": "Toggle Gutter Thumbnails",
+        "category": "Image Preview"
+      },
+      {
+        "command": "imagePreview.copyFileAsDataUri",
+        "title": "Copy as Data URI",
+        "category": "Image Preview"
       }
     ],
     "configuration": {
@@ -65,12 +87,50 @@
           "type": "boolean",
           "default": true,
           "description": "Preview http(s) image URLs on hover. This fetches the URL to check whether it is an image; disable to prevent any network requests from hovering."
+        },
+        "imagePreview.gutterThumbnails": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show a small thumbnail in the gutter next to lines that contain a base64 or data URI image."
+        },
+        "imagePreview.insertFormat": {
+          "type": "string",
+          "enum": [
+            "dataUri",
+            "base64"
+          ],
+          "enumDescriptions": [
+            "data:image/png;base64,…",
+            "Raw base64 without the data: prefix"
+          ],
+          "default": "dataUri",
+          "description": "Format used by Insert Image as Base64, and the default when pasting or dropping images."
+        },
+        "imagePreview.pasteAndDrop": {
+          "type": "boolean",
+          "default": true,
+          "description": "Offer to insert pasted or dropped images as a data URI or base64. Pasted text and dropped file paths keep working as before; the image options appear in the paste/drop menu."
         }
       }
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "imagePreview.copyFileAsDataUri",
+          "when": "false"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "imagePreview.copyFileAsDataUri",
+          "when": "resourceExtname =~ /^\\.(png|jpe?g|gif|webp|bmp|ico|svg|avif|tiff?)$/i",
+          "group": "6_copypath@50"
+        }
+      ]
     }
   },
   "scripts": {
-    "test": "node test/detect.test.js",
+    "test": "node test/detect.test.js && node test/store.test.js",
     "test:integration": "node test/integration/run.js",
     "package": "npx --yes @vscode/vsce@latest package",
     "publish:vsce": "npx --yes @vscode/vsce@latest publish",

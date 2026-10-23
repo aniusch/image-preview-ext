@@ -3,6 +3,11 @@
 
 'use strict';
 
+const path = require('path');
+
+// Largest image we decode, write, or insert.
+const MAX_IMAGE_BYTES = 16 * 1024 * 1024;
+
 // Characters that terminate a base64 / data-uri / url token. Anything NOT in this
 // set is considered part of the token when we scan outward from the cursor.
 const DELIMITERS = new Set([
@@ -86,6 +91,46 @@ function classify(token) {
   return null;
 }
 
+// Every previewable token in `text`, in document order: { start, end, value,
+// info }. Inline images (raw base64, data URIs) always; image URLs only with
+// { urls: true }, and only those whose extension says image, so listing never
+// needs the network. Tokens are split on the same DELIMITERS as tokenAt.
+const TOKEN_RE = /[^"'`\s<>()[\]{}\\|]+/g;
+function findImages(text, { urls = false, max = Infinity } = {}) {
+  const found = [];
+  const re = new RegExp(TOKEN_RE);
+  let m;
+  while (found.length < max && (m = re.exec(text))) {
+    const value = m[0];
+    // Base64 and data URIs are long; skip ordinary words cheaply.
+    if (value.length < 32 && !(urls && value.startsWith('http'))) continue;
+    const info = classify(value);
+    if (!info) continue;
+    if (info.kind === 'url' && (!urls || info.probe)) continue;
+    found.push({ start: m.index, end: m.index + value.length, value, info });
+  }
+  return found;
+}
+
+// Bytes of an inline image (raw base64 or data URI); null for URLs.
+function decodeInline(info, value) {
+  if (info.kind === 'base64') return Buffer.from(value.trim(), 'base64');
+  if (info.kind === 'dataUri') {
+    return Buffer.from(info.dataUri.slice(info.dataUri.indexOf(',') + 1), 'base64');
+  }
+  return null;
+}
+
+// Mime type from a file's first bytes, else from its extension.
+function sniffMime(buffer, fileName = '') {
+  const fromBytes = base64Mime(buffer.subarray(0, 12).toString('base64'));
+  if (fromBytes) return fromBytes;
+  // SVG may start with whitespace, a comment, or a doctype.
+  if (/<svg[\s>]/i.test(buffer.toString('utf8', 0, 1024))) return 'image/svg+xml';
+  const ext = path.extname(fileName).slice(1).toLowerCase();
+  return EXT_MIME[ext] || null;
+}
+
 function base64Mime(b64) {
   for (const [prefix, mime] of BASE64_MAGIC) {
     if (b64.startsWith(prefix)) return mime;
@@ -112,6 +157,11 @@ const MIME_EXT = {
   'image/avif': 'avif',
   'image/tiff': 'tiff',
 };
+
+const EXT_MIME = Object.fromEntries(Object.entries(MIME_EXT).map(([mime, ext]) => [ext, mime]));
+EXT_MIME.jpeg = 'image/jpeg';
+EXT_MIME.tif = 'image/tiff';
+const IMAGE_EXTS = Object.keys(EXT_MIME);
 
 function mimeExt(mime) {
   return MIME_EXT[(mime || '').toLowerCase()] || 'img';
@@ -213,6 +263,14 @@ function fitWithin(size, maxWidth, maxHeight = maxWidth) {
   };
 }
 
+// "image/png · 600×400 · 15.9 KB"
+function describeImage(buffer, mime, size = imageSize(buffer)) {
+  const parts = [mime];
+  if (size) parts.push(`${size.width}×${size.height}`);
+  parts.push(humanSize(buffer.length));
+  return parts.join(' · ');
+}
+
 function humanSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -220,14 +278,20 @@ function humanSize(bytes) {
 }
 
 module.exports = {
+  MAX_IMAGE_BYTES,
+  IMAGE_EXTS,
   DELIMITERS,
   BASE64_MAGIC,
   tokenAt,
   classify,
+  findImages,
+  decodeInline,
+  sniffMime,
   base64Mime,
   base64Bytes,
   mimeExt,
   imageSize,
   fitWithin,
+  describeImage,
   humanSize,
 };

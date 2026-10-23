@@ -2,20 +2,23 @@
 
 const vscode = require('vscode');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
-const crypto = require('crypto');
 const {
   tokenAt,
   classify,
-  base64Bytes,
+  decodeInline,
   mimeExt,
   imageSize,
   fitWithin,
+  describeImage,
   humanSize,
+  MAX_IMAGE_BYTES,
 } = require('./src/detect');
+const { createStore } = require('./src/store');
+const { GutterThumbnails } = require('./src/gutter');
+const { showAllImages } = require('./src/gallery');
+const { insertImage, copyFileAsDataUri, registerPasteAndDrop } = require('./src/insert');
 
-const MAX_BYTES = 16 * 1024 * 1024; // cap on any single image we materialize
 // Hover thumbnail box. VS Code caps a hover at max(editor height / 4, 250px),
 // so the image plus two text lines must fit in 250px or the links scroll away.
 const THUMB_MAX_WIDTH = 300;
@@ -23,8 +26,11 @@ const THUMB_MAX_HEIGHT = 160;
 const FETCH_TIMEOUT_MS = 6000; // abort slow remote image fetches
 const URL_CACHE_MAX = 100; // remembered URL fetch results per session
 
+const store = createStore();
+
 function activate(context) {
   const selector = { scheme: '*', language: '*' };
+  store.clearStale();
 
   context.subscriptions.push(
     vscode.languages.registerHoverProvider(selector, {
@@ -48,23 +54,50 @@ function activate(context) {
     ),
     vscode.commands.registerCommand('imagePreview.openExternal', (arg) =>
       openExternal(arg)
+    ),
+    vscode.commands.registerCommand('imagePreview.showAllImages', () =>
+      showAllImages(store)
+    ),
+    vscode.commands.registerCommand('imagePreview.insertImage', () => insertImage()),
+    vscode.commands.registerCommand('imagePreview.copyFileAsDataUri', (uri, uris) =>
+      copyFileAsDataUri(uri, uris)
     )
   );
+
+  const gutter = new GutterThumbnails(store);
+  context.subscriptions.push(
+    gutter,
+    vscode.commands.registerCommand('imagePreview.toggleGutterThumbnails', () =>
+      vscode.workspace
+        .getConfiguration('imagePreview')
+        .update('gutterThumbnails', !gutter.enabled(), vscode.ConfigurationTarget.Global)
+    ),
+    vscode.window.onDidChangeVisibleTextEditors(() => gutter.schedule(0)),
+    vscode.workspace.onDidChangeTextDocument((event) => {
+      if (vscode.window.visibleTextEditors.some((e) => e.document === event.document)) {
+        gutter.schedule();
+      }
+    }),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration('imagePreview.gutterThumbnails')) gutter.schedule(0);
+    })
+  );
+  gutter.schedule(0);
+
+  registerPasteAndDrop(context);
 }
 
-function deactivate() {}
+function deactivate() {
+  store.clear();
+}
 
 // ---- Image resolution -----------------------------------------------------
 
 // Resolve a classified token to raw bytes + mime, fetching remote URLs.
 async function resolveImage(info, token) {
-  if (info.kind === 'base64') {
-    const buf = Buffer.from(token.value.trim(), 'base64');
-    return { buffer: buf, mime: info.mime, source: 'base64' };
-  }
-  if (info.kind === 'dataUri') {
-    const body = info.dataUri.slice(info.dataUri.indexOf(',') + 1);
-    return { buffer: Buffer.from(body, 'base64'), mime: info.mime, source: 'data uri' };
+  if (info.kind === 'base64' || info.kind === 'dataUri') {
+    const source = info.kind === 'base64' ? 'base64' : 'data uri';
+    return { buffer: decodeInline(info, token.value), mime: info.mime, source };
   }
   if (info.kind === 'url') {
     if (!urlPreviewEnabled()) return null;
@@ -106,31 +139,15 @@ async function fetchImage(url) {
     const mime = (res.headers.get('content-type') || '').split(';')[0].trim();
     if (!mime.startsWith('image/')) return null;
     const len = Number(res.headers.get('content-length') || 0);
-    if (len && len > MAX_BYTES) return null;
+    if (len && len > MAX_IMAGE_BYTES) return null;
     const buffer = Buffer.from(await res.arrayBuffer());
-    if (buffer.length > MAX_BYTES) return null;
+    if (buffer.length > MAX_IMAGE_BYTES) return null;
     return { buffer, mime };
   } catch (_e) {
     return undefined; // network error / timeout — don't cache, allow retry
   } finally {
     clearTimeout(timer);
   }
-}
-
-// Write bytes to a stable temp file (named by content hash so identical images
-// are only written once) and return its path. VSCode hovers render local image
-// files by file URI without the length limit that caps inline data: URIs — the
-// reason large base64 blobs failed to preview while small ones worked.
-let cacheDir;
-function writeTemp(buffer, mime) {
-  if (!cacheDir) {
-    cacheDir = path.join(os.tmpdir(), 'vscode-inline-image-preview');
-    fs.mkdirSync(cacheDir, { recursive: true });
-  }
-  const hash = crypto.createHash('sha1').update(buffer).digest('hex').slice(0, 16);
-  const file = path.join(cacheDir, `${hash}.${mimeExt(mime)}`);
-  if (!fs.existsSync(file)) fs.writeFileSync(file, buffer);
-  return file;
 }
 
 // ---- Hover ----------------------------------------------------------------
@@ -146,14 +163,14 @@ async function provideHover(document, position) {
 
   const resolved = await resolveImage(info, token);
   if (!resolved || !resolved.buffer.length) return null;
-  if (resolved.buffer.length > MAX_BYTES) return null;
+  if (resolved.buffer.length > MAX_IMAGE_BYTES) return null;
 
   const range = new vscode.Range(
     document.positionAt(token.start),
     document.positionAt(token.end)
   );
 
-  const file = writeTemp(resolved.buffer, resolved.mime);
+  const file = store.write(resolved.buffer, resolved.mime);
   const size = imageSize(resolved.buffer);
   const arg = { file, mime: resolved.mime };
 
@@ -166,7 +183,7 @@ async function provideHover(document, position) {
   const fit = size ? fitWithin(size, THUMB_MAX_WIDTH, THUMB_MAX_HEIGHT) : null;
   const dimensions = fit ? `|width=${fit.width},height=${fit.height}` : '';
   md.appendMarkdown(`![preview](${vscode.Uri.file(file)}${dimensions})\n\n`);
-  md.appendMarkdown(`${describe(resolved.buffer, resolved.mime, size)} · ${resolved.source}\n\n`);
+  md.appendMarkdown(`${describeImage(resolved.buffer, resolved.mime, size)} · ${resolved.source}\n\n`);
   md.appendMarkdown(
     [
       commandLink('$(open-preview) Open full', 'imagePreview.openFull', arg),
@@ -178,14 +195,6 @@ async function provideHover(document, position) {
   );
 
   return new vscode.Hover(md, range);
-}
-
-// "image/png · 600×400 · 15.9 KB"
-function describe(buffer, mime, size = imageSize(buffer)) {
-  const parts = [mime];
-  if (size) parts.push(`${size.width}×${size.height}`);
-  parts.push(humanSize(buffer.length));
-  return parts.join(' · ');
 }
 
 function commandLink(label, command, arg) {
@@ -283,15 +292,15 @@ function openExternal(arg) {
 
 // Open a full-size, resizable preview tab for the given image bytes.
 function openWebview(buffer, mime) {
-  const file = writeTemp(buffer, mime); // ensures cacheDir exists
+  const file = store.write(buffer, mime);
   const panel = vscode.window.createWebviewPanel(
     'imagePreview',
     'Image Preview',
     vscode.ViewColumn.Beside,
-    { enableScripts: false, localResourceRoots: [vscode.Uri.file(cacheDir)] }
+    { enableScripts: false, localResourceRoots: [vscode.Uri.file(store.dir)] }
   );
   const src = panel.webview.asWebviewUri(vscode.Uri.file(file));
-  panel.webview.html = webviewHtml(src, describe(buffer, mime));
+  panel.webview.html = webviewHtml(src, describeImage(buffer, mime));
 }
 
 function webviewHtml(src, caption) {
