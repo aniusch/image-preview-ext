@@ -16,3 +16,4 @@ scratchpad/**
 **/*.map
 *.vsix
 images/**
+.vscode-test/**

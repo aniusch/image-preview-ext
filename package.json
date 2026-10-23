@@ -2,7 +2,7 @@
   "name": "inline-image-preview",
   "displayName": "Inline Image Preview — Base64, Data URI & URL",
   "description": "Hover a base64 string, data: URI, or image URL in any file to see the picture inline. Works in JSON, API responses, logs, fixtures, and code.",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "publisher": "aniusch",
   "license": "MIT",
   "engines": {
@@ -71,11 +71,12 @@
   },
   "scripts": {
     "test": "node test/detect.test.js",
+    "test:integration": "node test/integration/run.js",
     "package": "npx --yes @vscode/vsce@latest package",
     "publish:vsce": "npx --yes @vscode/vsce@latest publish",
     "publish:ovsx": "npx --yes ovsx@latest publish"
   },
-  "dependencies": {
-    "jimp": "^0.22.12"
+  "devDependencies": {
+    "@vscode/test-electron": "^2.5.2"
   }
 }

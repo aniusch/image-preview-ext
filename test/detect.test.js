@@ -4,7 +4,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { tokenAt, classify, base64Mime, base64Bytes } = require('../src/detect');
+const { tokenAt, classify, base64Mime, base64Bytes, imageSize, fitWithin } = require('../src/detect');
 
 let passed = 0;
 function ok(name, fn) {
@@ -23,6 +23,41 @@ ok('jpeg magic', () => assert.equal(base64Mime('/9j/4AAQSkZ'), 'image/jpeg'));
 ok('png magic', () => assert.equal(base64Mime('iVBORw0KGgoAAAA'), 'image/png'));
 ok('gif magic', () => assert.equal(base64Mime('R0lGODlhAQAB'), 'image/gif'));
 ok('non-image magic', () => assert.equal(base64Mime('SGVsbG8gd29ybGQ'), null));
+
+// --- image dimensions (7x5 images made with ImageMagick) ---
+const FIXTURES = {
+  'png': 'iVBORw0KGgoAAAANSUhEUgAAAAcAAAAFAQMAAACzVGSbAAAAIGNIUk0AAHomAACAhAAA+gAAAIDoAAB1MAAA6mAAADqYAAAXcJy6UTwAAAAGUExURTNmzP///w3eOY0AAAABYktHRAH/Ai3eAAAAB3RJTUUH6goXFhQXSaNokwAAAAtJREFUCNdjYIABAAAKAAHn+Nr6AAAAAElFTkSuQmCC',
+  'gif': 'R0lGODlhBwAFAPAAADNmzAAAACH5BAAAAAAAIf8LSW1hZ2VNYWdpY2sOZ2FtbWE9MC40NTQ1NDUALAAAAAAHAAUAAAIFhI+puwUAOw==',
+  'jpeg': '/9j/4AAQSkZJRgABAQAAAAAAAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/2wBDAQMDAwQDBAgEBAgQCwkLEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/wAARCAAFAAcDAREAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAAB//EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAVAQEBAAAAAAAAAAAAAAAAAAAHCP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AC9UAkf/2Q==',
+  'progressive jpeg': '/9j/4AAQSkZJRgABAQAAAAAAAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/2wBDAQMDAwQDBAgEBAgQCwkLEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/wgARCAAFAAcDAREAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAABv/EABUBAQEAAAAAAAAAAAAAAAAAAAYH/9oADAMBAAIQAxAAAAEvUCP/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAEFAn//xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/AX//xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/AX//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAY/An//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/IX//2gAMAwEAAgADAAAAED//xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/EH//xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/EH//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/EH//2Q==',
+  'bmp': 'Qk0CAQAAAAAAAIoAAAB8AAAABwAAAAUAAAABABgAAAAAAHgAAAAAAAAAAAAAAAAAAAAAAAAAAAD/AAD/AAD/AAAAAAAA/0JHUnMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAzGYzzGYzzGYzzGYzzGYzzGYzzGYzAAAAzGYzzGYzzGYzzGYzzGYzzGYzzGYzAAAAzGYzzGYzzGYzzGYzzGYzzGYzzGYzAAAAzGYzzGYzzGYzzGYzzGYzzGYzzGYzAAAAzGYzzGYzzGYzzGYzzGYzzGYzzGYzAAAA',
+  'ico': 'AAABAAEABwUAAAEAIADIAAAAFgAAACgAAAAHAAAACgAAAAEAIAAAAAAAjAAAAAAAAAAAAAAAAAAAAAAAAADMZjP/zGYz/8xmM//MZjP/zGYz/8xmM//MZjP/zGYz/8xmM//MZjP/zGYz/8xmM//MZjP/zGYz/8xmM//MZjP/zGYz/8xmM//MZjP/zGYz/8xmM//MZjP/zGYz/8xmM//MZjP/zGYz/8xmM//MZjP/zGYz/8xmM//MZjP/zGYz/8xmM//MZjP/zGYz/wAAAAAAAAAAAAAAAAAAAAAAAAAA',
+  'webp lossy (VP8)': 'UklGRjYAAABXRUJQVlA4ICoAAADQAQCdASoHAAUAAgA0JaACdLoB+AADsAD+7L2P/PTNeYP8nP+3Jl5tsAA=',
+  'webp lossless (VP8L)': 'UklGRh4AAABXRUJQVlA4TBEAAAAvBgABAAdQs86Uuf+BiOh/AAA=',
+  'webp extended (VP8X)': 'UklGRloAAABXRUJQVlA4WAoAAAAQAAAABgAABAAAQUxQSAoAAAABB1DAiAhERP8DVlA4ICoAAADQAQCdASoHAAUAAgA0JaACdLoB+AADsAD+7L2P/PTNeYP8nP+3Jl5tsAA=',
+};
+for (const [name, b64] of Object.entries(FIXTURES)) {
+  ok(`size ${name}`, () => assert.deepEqual(imageSize(Buffer.from(b64, 'base64')), { width: 7, height: 5 }));
+}
+ok('size svg width/height', () => {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="640px" height="480"></svg>';
+  assert.deepEqual(imageSize(Buffer.from(svg)), { width: 640, height: 480 });
+});
+ok('size svg viewBox', () => {
+  const svg = '<?xml version="1.0"?><svg viewBox="0 0 24 16" width="100%"></svg>';
+  assert.deepEqual(imageSize(Buffer.from(svg)), { width: 24, height: 16 });
+});
+ok('size unknown / truncated -> null', () => {
+  assert.equal(imageSize(Buffer.from('hello world, not an image')), null);
+  assert.equal(imageSize(Buffer.from(FIXTURES.png, 'base64').subarray(0, 12)), null);
+  assert.equal(imageSize(Buffer.from(FIXTURES.jpeg, 'base64').subarray(0, 30)), null);
+});
+ok('fitWithin scales down, never up', () => {
+  assert.deepEqual(fitWithin({ width: 600, height: 400 }, 300), { width: 300, height: 200 });
+  assert.deepEqual(fitWithin({ width: 100, height: 3000 }, 300), { width: 10, height: 300 });
+  assert.deepEqual(fitWithin({ width: 7, height: 5 }, 300), { width: 7, height: 5 });
+  assert.deepEqual(fitWithin({ width: 600, height: 400 }, 300, 160), { width: 240, height: 160 });
+});
 
 // --- classify ---
 ok('classify data uri', () => {

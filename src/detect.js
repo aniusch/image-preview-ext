@@ -117,6 +117,102 @@ function mimeExt(mime) {
   return MIME_EXT[(mime || '').toLowerCase()] || 'img';
 }
 
+// Pixel dimensions read from the image header, or null when the format is
+// unknown or the header is malformed. Returns { width, height }.
+function imageSize(buf) {
+  try {
+    if (!buf || buf.length < 10) return null;
+    // PNG: IHDR is always the first chunk.
+    if (buf.readUInt32BE(0) === 0x89504e47 && buf.length >= 24) {
+      return dims(buf.readUInt32BE(16), buf.readUInt32BE(20));
+    }
+    // GIF: logical screen size right after the signature.
+    if (buf.toString('latin1', 0, 3) === 'GIF') {
+      return dims(buf.readUInt16LE(6), buf.readUInt16LE(8));
+    }
+    // JPEG: walk segments until a start-of-frame marker.
+    if (buf[0] === 0xff && buf[1] === 0xd8) return jpegSize(buf);
+    // WebP: RIFF container with a VP8 / VP8L / VP8X chunk.
+    if (buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP') {
+      return webpSize(buf);
+    }
+    // BMP: BITMAPINFOHEADER; height is negative for top-down bitmaps.
+    if (buf[0] === 0x42 && buf[1] === 0x4d && buf.length >= 26) {
+      return dims(buf.readInt32LE(18), Math.abs(buf.readInt32LE(22)));
+    }
+    // ICO: first directory entry; 0 means 256.
+    if (buf.readUInt32BE(0) === 0x00000100 && buf.length >= 8) {
+      return dims(buf[6] || 256, buf[7] || 256);
+    }
+    const head = buf.toString('utf8', 0, Math.min(buf.length, 4096));
+    if (/<svg[\s>]/i.test(head)) return svgSize(head);
+  } catch (_e) {
+    // Truncated or corrupt header.
+  }
+  return null;
+}
+
+function dims(width, height) {
+  return width > 0 && height > 0 ? { width, height } : null;
+}
+
+function jpegSize(buf) {
+  let i = 2;
+  while (i + 9 < buf.length) {
+    if (buf[i] !== 0xff) return null;
+    const marker = buf[i + 1];
+    if (marker === 0xff) {
+      i++; // fill byte
+      continue;
+    }
+    // SOF0-SOF15, except DHT (C4), JPG (C8), and DAC (CC).
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      return dims(buf.readUInt16BE(i + 7), buf.readUInt16BE(i + 5));
+    }
+    i += 2 + buf.readUInt16BE(i + 2);
+  }
+  return null;
+}
+
+function webpSize(buf) {
+  const chunk = buf.toString('latin1', 12, 16);
+  if (chunk === 'VP8 ' && buf.length >= 30) {
+    return dims(buf.readUInt16LE(26) & 0x3fff, buf.readUInt16LE(28) & 0x3fff);
+  }
+  if (chunk === 'VP8L' && buf.length >= 25) {
+    const bits = buf.readUInt32LE(21);
+    return dims((bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1);
+  }
+  if (chunk === 'VP8X' && buf.length >= 30) {
+    return dims(buf.readUIntLE(24, 3) + 1, buf.readUIntLE(27, 3) + 1);
+  }
+  return null;
+}
+
+// width/height attributes in px (or unitless), else the viewBox size.
+function svgSize(head) {
+  const tag = head.match(/<svg\b[^>]*>/i);
+  if (!tag) return null;
+  const attr = (name) => {
+    const m = tag[0].match(new RegExp(`\\s${name}\\s*=\\s*["']\\s*([\\d.]+)(px)?\\s*["']`, 'i'));
+    return m ? Math.round(parseFloat(m[1])) : 0;
+  };
+  const width = attr('width');
+  const height = attr('height');
+  if (width && height) return dims(width, height);
+  const box = tag[0].match(/viewBox\s*=\s*["']\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)/i);
+  return box ? dims(Math.round(parseFloat(box[1])), Math.round(parseFloat(box[2]))) : null;
+}
+
+// Fit (width, height) inside a maxWidth x maxHeight box without upscaling.
+function fitWithin(size, maxWidth, maxHeight = maxWidth) {
+  const scale = Math.min(1, maxWidth / size.width, maxHeight / size.height);
+  return {
+    width: Math.max(1, Math.round(size.width * scale)),
+    height: Math.max(1, Math.round(size.height * scale)),
+  };
+}
+
 function humanSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -131,5 +227,7 @@ module.exports = {
   base64Mime,
   base64Bytes,
   mimeExt,
+  imageSize,
+  fitWithin,
   humanSize,
 };

@@ -10,11 +10,16 @@ const {
   classify,
   base64Bytes,
   mimeExt,
+  imageSize,
+  fitWithin,
   humanSize,
 } = require('./src/detect');
 
 const MAX_BYTES = 16 * 1024 * 1024; // cap on any single image we materialize
-const THUMB_MAX = 300; // px, longest edge of the hover thumbnail
+// Hover thumbnail box. VS Code caps a hover at max(editor height / 4, 250px),
+// so the image plus two text lines must fit in 250px or the links scroll away.
+const THUMB_MAX_WIDTH = 300;
+const THUMB_MAX_HEIGHT = 160;
 const FETCH_TIMEOUT_MS = 6000; // abort slow remote image fetches
 const URL_CACHE_MAX = 100; // remembered URL fetch results per session
 
@@ -33,6 +38,16 @@ function activate(context) {
     ),
     vscode.commands.registerCommand('imagePreview.openFull', (arg) =>
       openFull(arg)
+    ),
+    vscode.commands.registerCommand('imagePreview.saveAs', (arg) => saveAs(arg)),
+    vscode.commands.registerCommand('imagePreview.copyDataUri', (arg) =>
+      copy(arg, 'dataUri')
+    ),
+    vscode.commands.registerCommand('imagePreview.copyBase64', (arg) =>
+      copy(arg, 'base64')
+    ),
+    vscode.commands.registerCommand('imagePreview.openExternal', (arg) =>
+      openExternal(arg)
     )
   );
 }
@@ -118,24 +133,6 @@ function writeTemp(buffer, mime) {
   return file;
 }
 
-// Downscale to a small thumbnail for the hover. Returns { buffer, mime } or null
-// when the image is already small, the format is undecodable (webp/svg/ico), or
-// jimp errors — callers then fall back to the full-size image.
-async function makeThumb(buffer, mime) {
-  try {
-    const Jimp = require('jimp');
-    const img = await Jimp.read(buffer);
-    if (Math.max(img.bitmap.width, img.bitmap.height) <= THUMB_MAX) return null;
-    img.scaleToFit(THUMB_MAX, THUMB_MAX);
-    // Keep PNG for formats that may carry transparency; JPEG is smaller for photos.
-    const keepPng = mime === 'image/png' || mime === 'image/gif' || mime === 'image/bmp';
-    const outMime = keepPng ? Jimp.MIME_PNG : Jimp.MIME_JPEG;
-    return { buffer: await img.getBufferAsync(outMime), mime: outMime };
-  } catch (_e) {
-    return null;
-  }
-}
-
 // ---- Hover ----------------------------------------------------------------
 
 async function provideHover(document, position) {
@@ -156,25 +153,43 @@ async function provideHover(document, position) {
     document.positionAt(token.end)
   );
 
-  // Full-size file backs the "open full" command; a downscaled thumbnail is what
-  // the hover actually shows so the tooltip stays small.
-  const fullFile = writeTemp(resolved.buffer, resolved.mime);
-  const thumb = await makeThumb(resolved.buffer, resolved.mime);
-  const displayFile = thumb ? writeTemp(thumb.buffer, thumb.mime) : fullFile;
+  const file = writeTemp(resolved.buffer, resolved.mime);
+  const size = imageSize(resolved.buffer);
+  const arg = { file, mime: resolved.mime };
 
-  const md = new vscode.MarkdownString();
+  const md = new vscode.MarkdownString(undefined, true);
   md.isTrusted = true;
-  // Reference the image by file URI. Markdown image syntax renders reliably in
-  // hovers (HTML <img> shows as literal text), and a file URI sidesteps the
-  // data-URI size ceiling that stopped large images from rendering.
-  md.appendMarkdown(`![preview](${vscode.Uri.file(displayFile)})\n\n`);
-  const args = encodeURIComponent(JSON.stringify([{ file: fullFile, mime: resolved.mime }]));
+  // Reference the image by file URI: a file URI sidesteps the data-URI size
+  // ceiling that stopped large images from rendering. The `|width=,height=`
+  // suffix is VS Code's markdown image sizing, so the hover shows a thumbnail
+  // without re-encoding the image.
+  const fit = size ? fitWithin(size, THUMB_MAX_WIDTH, THUMB_MAX_HEIGHT) : null;
+  const dimensions = fit ? `|width=${fit.width},height=${fit.height}` : '';
+  md.appendMarkdown(`![preview](${vscode.Uri.file(file)}${dimensions})\n\n`);
+  md.appendMarkdown(`${describe(resolved.buffer, resolved.mime, size)} · ${resolved.source}\n\n`);
   md.appendMarkdown(
-    `${resolved.mime} · ${humanSize(resolved.buffer.length)} · ${resolved.source} · ` +
-    `[Open full](command:imagePreview.openFull?${args})`
+    [
+      commandLink('$(open-preview) Open full', 'imagePreview.openFull', arg),
+      commandLink('$(save) Save', 'imagePreview.saveAs', arg),
+      commandLink('$(copy) Data URI', 'imagePreview.copyDataUri', arg),
+      commandLink('$(copy) Base64', 'imagePreview.copyBase64', arg),
+      commandLink('$(link-external) External', 'imagePreview.openExternal', arg),
+    ].join(' &nbsp; ')
   );
 
   return new vscode.Hover(md, range);
+}
+
+// "image/png · 600×400 · 15.9 KB"
+function describe(buffer, mime, size = imageSize(buffer)) {
+  const parts = [mime];
+  if (size) parts.push(`${size.width}×${size.height}`);
+  parts.push(humanSize(buffer.length));
+  return parts.join(' · ');
+}
+
+function commandLink(label, command, arg) {
+  return `[${label}](command:${command}?${encodeURIComponent(JSON.stringify([arg]))})`;
 }
 
 // ---- Command / Webview ----------------------------------------------------
@@ -220,13 +235,50 @@ async function showSelection(context) {
   openWebview(resolved.buffer, resolved.mime);
 }
 
-// Invoked by the "Open full" hover link. arg = { file, mime }.
-function openFull(arg) {
+// Hover links pass { file, mime } pointing at a decoded temp file.
+function loadArg(arg) {
   if (!arg || !arg.file || !fs.existsSync(arg.file)) {
-    vscode.window.showWarningMessage('Image is no longer available.');
-    return;
+    vscode.window.showWarningMessage('Image is no longer available. Hover it again.');
+    return null;
   }
-  openWebview(fs.readFileSync(arg.file), arg.mime);
+  return { file: arg.file, buffer: fs.readFileSync(arg.file), mime: arg.mime };
+}
+
+function openFull(arg) {
+  const image = loadArg(arg);
+  if (image) openWebview(image.buffer, image.mime);
+}
+
+async function saveAs(arg) {
+  const image = loadArg(arg);
+  if (!image) return;
+  const ext = mimeExt(image.mime);
+  const name = `image.${ext}`;
+  const doc = vscode.window.activeTextEditor && vscode.window.activeTextEditor.document;
+  const folder = doc && doc.uri.scheme === 'file'
+    ? vscode.Uri.joinPath(doc.uri, '..')
+    : vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0].uri;
+  const target = await vscode.window.showSaveDialog({
+    defaultUri: folder ? vscode.Uri.joinPath(folder, name) : undefined,
+    filters: { Image: [ext] },
+  });
+  if (!target) return;
+  await vscode.workspace.fs.writeFile(target, image.buffer);
+  vscode.window.showInformationMessage(`Saved ${path.basename(target.path)}.`);
+}
+
+async function copy(arg, format) {
+  const image = loadArg(arg);
+  if (!image) return;
+  const b64 = image.buffer.toString('base64');
+  await vscode.env.clipboard.writeText(format === 'dataUri' ? `data:${image.mime};base64,${b64}` : b64);
+  const what = format === 'dataUri' ? 'data URI' : 'base64';
+  vscode.window.setStatusBarMessage(`Copied ${what} (${humanSize(b64.length)})`, 3000);
+}
+
+function openExternal(arg) {
+  const image = loadArg(arg);
+  if (image) vscode.env.openExternal(vscode.Uri.file(image.file));
 }
 
 // Open a full-size, resizable preview tab for the given image bytes.
@@ -239,7 +291,7 @@ function openWebview(buffer, mime) {
     { enableScripts: false, localResourceRoots: [vscode.Uri.file(cacheDir)] }
   );
   const src = panel.webview.asWebviewUri(vscode.Uri.file(file));
-  panel.webview.html = webviewHtml(src, `${mime} · ${humanSize(buffer.length)}`);
+  panel.webview.html = webviewHtml(src, describe(buffer, mime));
 }
 
 function webviewHtml(src, caption) {

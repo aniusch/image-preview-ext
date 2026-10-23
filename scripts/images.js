@@ -7,7 +7,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { humanSize } = require('../src/detect');
+const { humanSize, imageSize, fitWithin } = require('../src/detect');
 
 const ROOT = path.join(__dirname, '..');
 const CHROME = process.env.CHROME || 'google-chrome';
@@ -82,7 +82,12 @@ const LINES = [
   '}',
 ];
 
-const caption = `image/png · ${humanSize(picture.length)} · base64 · <a>Open full</a>`;
+const size = imageSize(picture);
+const thumb = fitWithin(size, 300, 160);
+const caption = `image/png · ${size.width}×${size.height} · ${humanSize(picture.length)} · base64`;
+const actions = ['⧉ Open full', '🖫 Save', '⎘ Data URI', '⎘ Base64', '↗ External']
+  .map((label) => `<a>${label}</a>`)
+  .join('');
 const hero = `<!doctype html><html><head><meta charset="utf-8"><style>
   * { box-sizing: border-box; }
   body { margin: 0; width: 1100px; height: 620px; overflow: hidden;
@@ -105,8 +110,9 @@ const hero = `<!doctype html><html><head><meta charset="utf-8"><style>
   .hover { position: absolute; left: 236px; top: 110px; padding: 8px 10px 6px;
     background: #202020; border: 1px solid #454545; border-radius: 4px;
     box-shadow: 0 4px 18px #000a; font: 13px/19px system-ui, sans-serif; }
-  .hover img { display: block; width: 300px; height: 200px; margin-bottom: 8px; }
+  .hover img { display: block; margin-bottom: 8px; }
   .hover .cap { color: #cccccc; }
+  .hover .actions { display: flex; gap: 14px; margin-top: 4px; }
   .hover a { color: #4daafc; text-decoration: none; }
   .cursor { position: absolute; left: 372px; top: 92px; width: 2px; height: 21px; background: #aeafad; }
 </style></head><body>
@@ -119,11 +125,12 @@ const hero = `<!doctype html><html><head><meta charset="utf-8"><style>
     ${LINES.map((line, i) => `<div class="row${i === 4 ? ' cur' : ''}"><span class="ln">${i + 1}</span><span>${line}</span></div>`).join('')}
     <div class="cursor"></div>
     <div class="hover">
-      <img src="data:image/png;base64,${b64}" alt="">
+      <img src="data:image/png;base64,${b64}" width="${thumb.width}" height="${thumb.height}" alt="">
       <div class="cap">${caption}</div>
+      <div class="actions">${actions}</div>
     </div>
   </div>
 </body></html>`;
-shoot(hero, path.join(ROOT, 'images', 'hover.png'), 1100, 430, 2);
+shoot(hero, path.join(ROOT, 'images', 'hover.png'), 1100, 420, 2);
 
 fs.rmSync(TMP, { recursive: true, force: true });

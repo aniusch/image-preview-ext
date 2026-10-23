@@ -23,10 +23,15 @@ Works in every language and file type, including untrusted workspaces.
 
 ## Features
 
-- **Hover preview.** Shows a thumbnail up to 300 px with the type, size, and
-  where the image came from.
-- **Open full.** The link in the hover opens the full-size image in a preview
-  tab beside the editor, on a checkerboard so transparency is visible.
+- **Hover preview.** Shows a thumbnail with the image type, pixel size
+  (`600×400`), file size, and where the image came from.
+- **Hover actions.**
+  - *Open full* opens the full-size image in a tab beside the editor, on a
+    checkerboard so transparency is visible.
+  - *Save* writes the image to a file.
+  - *Data URI* and *Base64* copy the image in either form, so you can convert
+    a raw base64 field to a data URI or back.
+  - *External* opens the image in your system's image viewer.
 - **Command.** *Image Preview: Preview Selection / String* in the Command
   Palette previews the current selection, the string under the cursor, or a
   string you paste.
@@ -47,8 +52,9 @@ URL fetches time out after 6 seconds and results are cached for the session.
 No build step: the editor runs `extension.js` and `src/` directly.
 
 ```bash
-npm install          # jimp, used for thumbnails
-npm test             # detection logic against sample payloads
+npm install          # dev tools only; the extension has no dependencies
+npm test             # detection and image-size logic
+npm run test:integration   # hover and commands inside a real VS Code
 ./install.sh         # symlink into VSCode/Cursor for live editing
 npm run package      # build the .vsix
 ```
