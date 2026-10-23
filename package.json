@@ -1,24 +1,38 @@
 {
   "name": "inline-image-preview",
-  "displayName": "Inline Image Preview",
-  "description": "Preview base64 strings, data URIs, and image URLs inline on hover.",
-  "version": "0.1.0",
+  "displayName": "Inline Image Preview — Base64, Data URI & URL",
+  "description": "Hover a base64 string, data: URI, or image URL in any file to see the picture inline. Works in JSON, API responses, logs, fixtures, and code.",
+  "version": "0.1.1",
   "publisher": "aniusch",
   "license": "MIT",
   "engines": {
     "vscode": "^1.75.0"
   },
   "categories": [
-    "Visualization"
+    "Visualization",
+    "Other"
   ],
   "keywords": [
     "base64",
-    "image",
-    "preview",
+    "base64 image",
     "data uri",
-    "hover"
+    "data url",
+    "image",
+    "image preview",
+    "hover",
+    "thumbnail",
+    "json",
+    "api",
+    "png",
+    "jpeg",
+    "svg",
+    "webp"
   ],
   "icon": "icon.png",
+  "galleryBanner": {
+    "color": "#141b2d",
+    "theme": "dark"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/aniusch/image-preview-ext.git"
@@ -27,6 +41,12 @@
     "url": "https://github.com/aniusch/image-preview-ext/issues"
   },
   "homepage": "https://github.com/aniusch/image-preview-ext#readme",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": true
+  },
   "activationEvents": [
     "onStartupFinished"
   ],

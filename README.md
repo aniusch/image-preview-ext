@@ -1,85 +1,62 @@
+<p align="center"><img src="icon.png" width="128" alt="Inline Image Preview icon"></p>
+
 # Inline Image Preview
 
-A tiny, zero-build VSCode / Cursor extension that previews images embedded in text:
+Hover a base64 string, a `data:` URI, or an image URL in any file and see the
+picture right there. Useful for API responses, JSON fixtures, logs, test
+snapshots, database dumps, and any code that has images inline.
 
-- **Raw base64** blobs (no `data:` prefix) — detected by magic bytes (JPEG, PNG, GIF, WebP, BMP, ICO, SVG). This is the shape used by the sample payloads (`objectBase64` fields).
-- **Data URIs** — `data:image/png;base64,...`
-- **Image URLs** — `https://.../foo.png`, and also **extension-less URLs**
-  (CDN / S3 / signed links like `https://…amazonaws.com/private/<uuid>`), which
-  are confirmed by their `Content-Type` at fetch time. Results are cached per
-  session, fetches time out after 6s, and obvious non-images (`.html`, `.json`,
-  …) are never fetched. Turn this off with `imagePreview.previewUrls: false` if
-  you don't want hovers making network requests.
+![Hovering a base64 avatar field in a JSON response shows the image in a tooltip](images/hover.png)
+
+## What it recognizes
+
+- **Raw base64.** No `data:` prefix needed. JPEG, PNG, GIF, WebP, BMP, ICO,
+  and SVG are recognized by their first bytes, so a bare `"iVBORw0KGgo…"` or
+  `"/9j/…"` field works.
+- **Data URIs.** `data:image/png;base64,…`
+- **Image URLs.** Links ending in `.png`, `.jpg`, `.webp`, `.svg`, and so on.
+  Links without an extension (CDN, S3, and signed URLs) are checked by their
+  `Content-Type`, and links to obvious non-images (`.html`, `.json`, …) are
+  never fetched.
+
+Works in every language and file type, including untrusted workspaces.
 
 ## Features
 
-1. **Hover preview** — hover the cursor over any of the above and a small
-   thumbnail (max 300px, downscaled via `jimp`) renders inline in the tooltip,
-   with mime type + size and an **Open full** link.
-2. **Open full** — the hover link (and the command below) opens the full-size
-   image in a resizable preview tab.
-3. **Command** — `Image Preview: Preview Selection / String` (Command Palette)
-   opens the full preview tab from the current selection, the token under the
-   cursor, or a pasted string.
+- **Hover preview.** Shows a thumbnail up to 300 px with the type, size, and
+  where the image came from.
+- **Open full.** The link in the hover opens the full-size image in a preview
+  tab beside the editor, on a checkerboard so transparency is visible.
+- **Command.** *Image Preview: Preview Selection / String* in the Command
+  Palette previews the current selection, the string under the cursor, or a
+  string you paste.
+- **Handles big images.** Images are written to a temp folder
+  (`$TMPDIR/vscode-inline-image-preview/`) and shown from there, so multi-MB
+  base64 blobs render too. The limit is 16 MB per image.
 
-Images are decoded to temp files (`$TMPDIR/vscode-inline-image-preview/`) and
-referenced by URI, which avoids the data-URI length limit that otherwise stops
-large images from rendering in hovers.
+## Settings
 
-## Try it
+| Setting | Default | Description |
+| --- | --- | --- |
+| `imagePreview.previewUrls` | `true` | Preview http(s) image URLs on hover. This fetches the URL; turn it off to keep hovers from making network requests. |
 
-Open the folder in VSCode/Cursor and press <kbd>F5</kbd> ("Run Extension") to
-launch an Extension Development Host with `samples/` loaded. Open a sample JSON
-and hover over the long `objectBase64` value.
+URL fetches time out after 6 seconds and results are cached for the session.
 
-## Install & share (VSCode + Cursor)
+## Development
 
-The extension is packaged as a single `.vsix` that installs on both editors.
+No build step: the editor runs `extension.js` and `src/` directly.
 
-**Build the package** (produces `inline-image-preview-<version>.vsix`):
-
-```
-npm install
-npm run package
-```
-
-**Install the `.vsix`** — hand the file to anyone; it works the same in VSCode and
-Cursor:
-
-- **GUI:** Extensions view → `···` menu → **Install from VSIX…** → pick the file.
-- **CLI:** `code --install-extension inline-image-preview-0.0.1.vsix`
-  (Cursor: `cursor --install-extension inline-image-preview-0.0.1.vsix`)
-
-Reload the window after installing.
-
-> Listing it for one-click install: publish to the **VS Marketplace** (VSCode)
-> and **Open VSX** (Cursor). See [`PUBLISHING.md`](./PUBLISHING.md) for the full
-> walkthrough. The `.vsix` above needs no accounts and is the quickest way to
-> share with a few people.
-
-### Local development install
-
-`install.sh` symlinks this folder into your editor's extensions dir for live
-editing. The extension runs its source (`extension.js`) directly — no build
-step — so just reload the window after editing. Pressing <kbd>F5</kbd> launches a
-dev host with `samples/` loaded. Run `npm install` once so the `jimp` dependency
-is present.
-
-## Test
-
-```
-npm test
+```bash
+npm install          # jimp, used for thumbnails
+npm test             # detection logic against sample payloads
+./install.sh         # symlink into VSCode/Cursor for live editing
+npm run package      # build the .vsix
 ```
 
-Runs the pure detection logic against the real sample payloads.
+Press <kbd>F5</kbd> to open a development window with `samples/` loaded.
+`node scripts/images.js` regenerates the icon and the README screenshot.
+Publishing steps are in [`PUBLISHING.md`](./PUBLISHING.md).
 
-## How it works
+## License
 
-- `src/detect.js` — pure, dependency-free detection (token scanning + magic-byte
-  classification). Unit-tested.
-- `extension.js` — the `vscode` glue: the `HoverProvider`, thumbnailing, and the
-  preview/open-full commands.
-
-No build step, no bundler, no TypeScript compile — plain CommonJS the editor runs
-directly. `jimp` (pure JS, no native build) is the one runtime dependency, used
-to downscale hover thumbnails; run `npm install` before first use.
+MIT
